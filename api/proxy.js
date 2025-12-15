@@ -5,45 +5,66 @@ export const config = {
 export default async function handler(req) {
   const url = new URL(req.url);
   
-  // Clean path: remove /api/proxy prefix
-  const path = url.pathname.replace(/^\/api\/proxy/, '');
-  // Construct target URL
-  const targetUrl = `https://generativelanguage.googleapis.com${path}${url.search}`;
+  // Определяем целевой URL: убираем /api/proxy и подставляем хост Google API
+  const targetHost = 'generativelanguage.googleapis.com';
+  const targetPath = url.pathname.replace(/^\/api\/proxy/, '');
+  const targetUrl = new URL(targetPath, `https://${targetHost}`);
 
-  // Prepare headers
+  // Копируем параметры запроса (например, ?key=...)
+  url.searchParams.forEach((value, key) => {
+    targetUrl.searchParams.append(key, value);
+  });
+
+  // Обработка Preflight запросов (CORS OPTIONS)
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': '*', // Разрешаем любые заголовки, которые шлет SDK
+      },
+    });
+  }
+
+  // Подготовка заголовков для пересылки
   const headers = new Headers();
-  
-  // Explicitly copy ONLY safe headers. 
-  // Browsers send Origin/Referer/Host which can cause Google API to reject the request with 400/403.
-  const allowedHeaders = [
-    'content-type', 
-    'x-goog-api-client', 
-    'x-goog-api-key', 
-    'accept',
-    'user-agent'
-  ];
-  
   for (const [key, value] of req.headers.entries()) {
-    if (allowedHeaders.includes(key.toLowerCase())) {
+    // Пропускаем системные заголовки, которые могут конфликтовать или указывать на прокси
+    if (!['host', 'connection', 'transfer-encoding', 'content-length', 'content-encoding'].includes(key.toLowerCase())) {
       headers.set(key, value);
     }
   }
 
-  // Debug (will show in Vercel logs)
-  console.log(`Proxying ${req.method} to: ${targetUrl}`);
-
   try {
-    const response = await fetch(targetUrl, {
+    const response = await fetch(targetUrl.toString(), {
       method: req.method,
       headers: headers,
-      body: (req.method !== 'GET' && req.method !== 'HEAD') ? req.body : undefined,
+      body: req.body,
+      redirect: 'follow', // Следуем за редиректами если есть
     });
 
-    return response;
-  } catch (e) {
-    return new Response(JSON.stringify({ error: 'Proxy fetch failed', details: e.message }), {
+    // Подготовка заголовков ответа для клиента
+    const resHeaders = new Headers(response.headers);
+    resHeaders.set('Access-Control-Allow-Origin', '*');
+    
+    // Удаляем заголовки сжатия, чтобы браузер не пытался разжать то, что уже могло быть обработано
+    resHeaders.delete('content-encoding');
+    resHeaders.delete('content-length');
+
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: resHeaders,
+    });
+  } catch (error) {
+    console.error('Proxy Error:', error);
+    return new Response(JSON.stringify({ error: 'Proxy Request Failed', details: error.message }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      },
     });
   }
 }

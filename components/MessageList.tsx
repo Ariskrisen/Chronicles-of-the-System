@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Message, Sender } from '../types';
-import { Sparkles, Quill } from 'lucide-react';
+import { Sparkles, Feather } from 'lucide-react';
 
 interface MessageListProps {
   messages: Message[];
@@ -34,7 +34,7 @@ export const MessageList: React.FC<MessageListProps> = ({ messages, isTyping }) 
                 : 'bg-transparent text-[#d6cbb8] pl-6 border-l-2 border-[#44403c]'}`}
             >
                {msg.sender === Sender.HERO && (
-                 <Quill className="absolute -left-[11px] top-6 bg-[#0c0a09] text-[#78716c]" size={20} />
+                 <Feather className="absolute -left-[11px] top-6 bg-[#0c0a09] text-[#78716c]" size={20} />
                )}
                {msg.sender === Sender.SYSTEM && (
                  <div className="absolute -top-3 -right-3 text-[#bfa15f] bg-[#0c0a09] rounded-full p-1 border border-[#594a3a]">
@@ -51,7 +51,7 @@ export const MessageList: React.FC<MessageListProps> = ({ messages, isTyping }) 
 
         {isTyping && (
           <div className="flex items-center gap-3 text-[#57534e] animate-pulse pl-8">
-             <Quill size={16} />
+             <Feather size={16} />
              <span className="font-serif italic text-sm">Герой оставляет записи...</span>
           </div>
         )}

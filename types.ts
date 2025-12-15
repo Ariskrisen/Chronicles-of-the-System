@@ -23,7 +23,7 @@ export interface HeroProfile {
 }
 
 export interface GameState {
-  status: 'INITIALIZING' | 'SEARCHING' | 'LOCATION_PREVIEW' | 'ACTIVE' | 'HERO_DEAD';
+  status: 'MENU' | 'INITIALIZING' | 'SEARCHING' | 'LOCATION_PREVIEW' | 'ACTIVE' | 'HERO_DEAD';
   messages: Message[];
   currentHero: HeroProfile | null;
   systemEnergy: number; // 0-100
@@ -41,4 +41,10 @@ export interface Book {
   icon: string; // Lucide icon name placeholder
   content: string;
   color: string;
+}
+
+export interface ApiConfig {
+  apiKey: string;
+  useProxy: boolean;
+  baseUrl?: string;
 }

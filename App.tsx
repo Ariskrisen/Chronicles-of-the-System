@@ -1,19 +1,21 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { HeroProfile, Message, Sender, GameState, ThemeType } from './types';
+import { HeroProfile, Message, Sender, GameState, ThemeType, ApiConfig } from './types';
 import { generateHero, continueStory } from './services/geminiService';
 import { HeroStatus } from './components/HeroStatus';
 import { MessageList } from './components/MessageList';
 import { InputArea } from './components/InputArea';
 import { LocationPreview } from './components/LocationPreview';
 import { LibraryModal } from './components/LibraryModal';
+import { MainMenu } from './components/MainMenu';
 import { Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
+  const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
   const [gameState, setGameState] = useState<GameState>({
-    status: 'INITIALIZING',
+    status: 'MENU',
     messages: [],
     currentHero: null,
-    systemEnergy: 50, // Start with some energy
+    systemEnergy: 50,
   });
   
   const [loading, setLoading] = useState(false);
@@ -24,6 +26,26 @@ const App: React.FC = () => {
   const ENERGY_COST_MESSAGE = 35;
   const ENERGY_GAIN_OBSERVE = 15;
   const MAX_ENERGY = 100;
+
+  // Load API Config from local storage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('system_api_config');
+    if (saved) {
+      try {
+        const config = JSON.parse(saved);
+        // Don't auto-login, just allow MainMenu to prefill or we can decide to auto-start.
+        // For better UX, let's just keep the config ready for the menu.
+      } catch (e) {
+        console.error("Failed to parse saved config");
+      }
+    }
+  }, []);
+
+  const handleStartGame = (config: ApiConfig) => {
+    localStorage.setItem('system_api_config', JSON.stringify(config));
+    setApiConfig(config);
+    initGame(config);
+  };
 
   // Define themes
   const themeStyles: Record<ThemeType, { bg: string, border: string, accent: string, sysMsg: string, mainBg: string }> = {
@@ -44,8 +66,12 @@ const App: React.FC = () => {
 
   // Update body background immediately when theme changes
   useEffect(() => {
-     document.body.style.backgroundColor = currentTheme.mainBg.replace('bg-[', '').replace(']', '');
-  }, [currentTheme]);
+    if (gameState.status === 'MENU') {
+      document.body.style.backgroundColor = '#09090b';
+    } else {
+      document.body.style.backgroundColor = currentTheme.mainBg.replace('bg-[', '').replace(']', '');
+    }
+  }, [currentTheme, gameState.status]);
 
   // Helper to add message
   const addMessage = (sender: Sender, content: string) => {
@@ -64,47 +90,53 @@ const App: React.FC = () => {
   };
 
   // Start generation
-  const initGame = useCallback(async () => {
+  const initGame = useCallback(async (config: ApiConfig) => {
     setGameState(prev => ({ ...prev, status: 'SEARCHING', messages: [], currentHero: null, systemEnergy: 50 }));
     setLastHeroStatus("");
     
-    await new Promise(r => setTimeout(r, 2000));
-    const hero = await generateHero();
-    
-    setGameState(prev => ({
-      ...prev,
-      status: 'LOCATION_PREVIEW',
-      currentHero: hero
-    }));
+    try {
+      await new Promise(r => setTimeout(r, 2000));
+      const hero = await generateHero(config);
+      
+      setGameState(prev => ({
+        ...prev,
+        status: 'LOCATION_PREVIEW',
+        currentHero: hero
+      }));
+    } catch (e) {
+      console.error(e);
+      alert("Ошибка генерации. Проверьте API ключ или настройки прокси.");
+      setGameState(prev => ({ ...prev, status: 'MENU' }));
+    }
   }, []);
 
   // Actually start the game after preview
   const startGame = async () => {
-    if (!gameState.currentHero) return;
+    if (!gameState.currentHero || !apiConfig) return;
     
     setGameState(prev => ({ ...prev, status: 'ACTIVE' }));
     setLoading(true);
 
-    // Initial prompt
-    const initialResponse = await continueStory(gameState.currentHero, [], null);
-    
-    addMessage(Sender.HERO, initialResponse.diaryEntry);
-    setLastHeroStatus(initialResponse.statusDescription);
+    try {
+      const initialResponse = await continueStory(gameState.currentHero, [], null, apiConfig);
+      
+      addMessage(Sender.HERO, initialResponse.diaryEntry);
+      setLastHeroStatus(initialResponse.statusDescription);
+    } catch (e) {
+      console.error(e);
+      addMessage(Sender.SYSTEM, "Ошибка соединения с носителем...");
+    }
     setLoading(false);
   };
 
-  useEffect(() => {
-    initGame();
-  }, [initGame]);
-
   // Shared logic for processing a turn
   const processTurn = async (userText: string | null) => {
-    if (!gameState.currentHero || gameState.status !== 'ACTIVE') return;
+    if (!gameState.currentHero || gameState.status !== 'ACTIVE' || !apiConfig) return;
 
     let newEnergy = gameState.systemEnergy;
 
     if (userText) {
-      if (newEnergy < ENERGY_COST_MESSAGE) return; // Should be handled by UI disabled state too
+      if (newEnergy < ENERGY_COST_MESSAGE) return; 
       addMessage(Sender.SYSTEM, userText);
       newEnergy -= ENERGY_COST_MESSAGE;
     } else {
@@ -120,24 +152,39 @@ const App: React.FC = () => {
         ...(userText ? [{ id: 'temp', sender: Sender.SYSTEM, content: userText, timestamp: Date.now() }] : [])
     ];
 
-    const response = await continueStory(gameState.currentHero, currentMessages, userText);
-    
-    setLoading(false);
-    addMessage(Sender.HERO, response.diaryEntry);
-    setLastHeroStatus(response.statusDescription);
+    try {
+      const response = await continueStory(gameState.currentHero, currentMessages, userText, apiConfig);
+      
+      addMessage(Sender.HERO, response.diaryEntry);
+      setLastHeroStatus(response.statusDescription);
 
-    if (response.isDead) {
-      setGameState(prev => ({ ...prev, status: 'HERO_DEAD' }));
+      if (response.isDead) {
+        setGameState(prev => ({ ...prev, status: 'HERO_DEAD' }));
+      }
+    } catch (e) {
+      console.error(e);
+      addMessage(Sender.SYSTEM, "Помехи в ментальном канале (API Error)...");
     }
+    setLoading(false);
   };
 
   const handleSendMessage = (text: string) => processTurn(text);
   const handleNextTurn = () => processTurn(null);
 
+  // Restart to searching (reusing same config)
+  const handleRestart = () => {
+    if (apiConfig) initGame(apiConfig);
+  };
+
+  if (gameState.status === 'MENU') {
+    const saved = localStorage.getItem('system_api_config');
+    const savedConfig = saved ? JSON.parse(saved) : null;
+    return <MainMenu onStart={handleStartGame} savedConfig={savedConfig} />;
+  }
+
   return (
     <div className={`flex flex-col h-screen overflow-hidden scanline relative transition-colors duration-1000 ${currentTheme.mainBg}`} style={{ backgroundColor: '' }}>
       
-      {/* Library Modal */}
       <LibraryModal isOpen={isLibraryOpen} onClose={() => setIsLibraryOpen(false)} />
 
       {/* Loading Overlay */}
@@ -179,7 +226,7 @@ const App: React.FC = () => {
         onOpenLibrary={() => setIsLibraryOpen(true)}
         disabled={loading || gameState.status !== 'ACTIVE'} 
         isDead={gameState.status === 'HERO_DEAD'}
-        onRestart={initGame}
+        onRestart={handleRestart}
         systemEnergy={gameState.systemEnergy}
       />
     </div>

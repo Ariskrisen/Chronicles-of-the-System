@@ -1,15 +1,35 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { HeroProfile, AIResponse, Message, Sender } from "../types";
-
-// Initialize Gemini
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+import { HeroProfile, AIResponse, Message, Sender, ApiConfig } from "../types";
 
 const MODEL_NAME = "gemini-2.5-flash";
+
+// Helper to create instance based on current config
+const createAI = (config: ApiConfig) => {
+  const options: any = { apiKey: config.apiKey };
+  
+  // If proxy mode is enabled and a base URL is provided, we attempt to configure it.
+  // Note: Support for baseUrl depends on the specific SDK version capabilities.
+  // We pass it in the client options which is the standard way for many Google SDKs.
+  if (config.useProxy && config.baseUrl) {
+    // This is a workaround pattern. The @google/genai SDK constructor 
+    // accepts { apiKey: ... }, { baseUrl: ... } in some variations or via transport.
+    // We try the common init pattern.
+    return new GoogleGenAI({ 
+      apiKey: config.apiKey,
+    }, {
+      baseUrl: config.baseUrl
+    });
+  }
+  
+  return new GoogleGenAI({ apiKey: config.apiKey });
+};
 
 /**
  * Generates a random hero profile + starting location description.
  */
-export const generateHero = async (): Promise<HeroProfile> => {
+export const generateHero = async (config: ApiConfig): Promise<HeroProfile> => {
+  const ai = createAI(config);
+  
   const prompt = `
     Сгенерируй профиль человека (героя), который попал (исекай) в мрачный, опасный, реалистичный средневековый дарк-фэнтези мир.
     
@@ -58,15 +78,8 @@ export const generateHero = async (): Promise<HeroProfile> => {
     } as HeroProfile;
   } catch (error) {
     console.error("Error generating hero:", error);
-    return {
-      name: "Неизвестный",
-      archetype: "Заблудшая душа",
-      personality: "Растерянный",
-      origin: "Очнулся в грязи без памяти.",
-      theme: 'dungeon',
-      locationDescription: "Холодный каменный пол, запах сырости и ржавчины. Темнота давит на глаза.",
-      startCoordinates: "00°00'N, 00°00'E"
-    };
+    // Re-throw to handle in UI (e.g. invalid key)
+    throw error;
   }
 };
 
@@ -76,9 +89,11 @@ export const generateHero = async (): Promise<HeroProfile> => {
 export const continueStory = async (
   hero: HeroProfile,
   history: Message[],
-  systemInput: string | null
+  systemInput: string | null,
+  config: ApiConfig
 ): Promise<AIResponse> => {
-  
+  const ai = createAI(config);
+
   // Create a condensed context log. 
   // IMPORTANT: To prevent loops, we explicitly tell the AI if the last messages were repetitive.
   const lastMessages = history.slice(-10); // Look at last 10 messages context

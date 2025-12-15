@@ -3,27 +3,56 @@ import { HeroProfile, AIResponse, Message, Sender, ApiConfig } from "../types";
 
 const MODEL_NAME = "gemini-2.5-flash";
 
-// Helper to create instance based on current config
-const createAI = (config: ApiConfig) => {
-  if (config.useProxy) {
-    // We set the baseUrl to the local proxy endpoint.
-    // The SDK uses this as the root for API calls.
-    // We rely on standard window.location.origin to work both locally and on Vercel.
-    return new GoogleGenAI({ 
-      apiKey: config.apiKey,
-      baseUrl: `${window.location.origin}/api/proxy`
+/**
+ * Internal helper to handle generation via SDK or Proxy.
+ */
+const generateContent = async (
+  apiConfig: ApiConfig,
+  model: string,
+  prompt: string,
+  genConfig: any
+): Promise<string> => {
+  if (apiConfig.useProxy) {
+    // GC-Hunter style: Call our own API endpoint with parameters
+    const response = await fetch('/api/proxy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        apiKey: apiConfig.apiKey,
+        model: model,
+        contents: prompt,
+        config: genConfig
+      }),
     });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || errorData.details || 'Proxy Request Failed');
+    }
+
+    const data = await response.json();
+    // Parse REST API response structure
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("No text in proxy response");
+    return text;
+  } else {
+    // Standard SDK usage
+    const ai = new GoogleGenAI({ apiKey: apiConfig.apiKey });
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: prompt,
+      config: genConfig,
+    });
+    return response.text || "";
   }
-  
-  return new GoogleGenAI({ apiKey: config.apiKey });
 };
 
 /**
  * Generates a random hero profile + starting location description.
  */
 export const generateHero = async (config: ApiConfig): Promise<HeroProfile> => {
-  const ai = createAI(config);
-  
   const prompt = `
     Сгенерируй профиль человека (героя), который попал (исекай) в мрачный, опасный, реалистичный средневековый дарк-фэнтези мир.
     
@@ -42,10 +71,11 @@ export const generateHero = async (config: ApiConfig): Promise<HeroProfile> => {
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: prompt,
-      config: {
+    const text = await generateContent(
+      config,
+      MODEL_NAME,
+      prompt,
+      {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -59,12 +89,9 @@ export const generateHero = async (config: ApiConfig): Promise<HeroProfile> => {
           },
           required: ["name", "archetype", "personality", "origin", "theme", "locationDescription"],
         },
-      },
-    });
+      }
+    );
 
-    const text = response.text;
-    if (!text) throw new Error("No response from AI");
-    
     const data = JSON.parse(text);
     return {
       ...data,
@@ -72,7 +99,6 @@ export const generateHero = async (config: ApiConfig): Promise<HeroProfile> => {
     } as HeroProfile;
   } catch (error) {
     console.error("Error generating hero:", error);
-    // Re-throw to handle in UI (e.g. invalid key)
     throw error;
   }
 };
@@ -86,10 +112,7 @@ export const continueStory = async (
   systemInput: string | null,
   config: ApiConfig
 ): Promise<AIResponse> => {
-  const ai = createAI(config);
-
   // Create a condensed context log. 
-  // IMPORTANT: To prevent loops, we explicitly tell the AI if the last messages were repetitive.
   const lastMessages = history.slice(-10); // Look at last 10 messages context
   
   const conversationLog = lastMessages.map(msg => 
@@ -133,11 +156,12 @@ export const continueStory = async (
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: prompt,
-      config: {
-        temperature: 1.1, // Higher temperature to reduce repetition
+    const text = await generateContent(
+      config,
+      MODEL_NAME,
+      prompt,
+      {
+        temperature: 1.1,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -148,15 +172,12 @@ export const continueStory = async (
           },
           required: ["diaryEntry", "isDead", "statusDescription"],
         },
-      },
-    });
+      }
+    );
 
-    const text = response.text;
-    if (!text) throw new Error("No response from AI");
     return JSON.parse(text) as AIResponse;
   } catch (error) {
     console.error("Error generating story:", error);
-    // Throwing error allows the UI to catch it
     throw error;
   }
 };

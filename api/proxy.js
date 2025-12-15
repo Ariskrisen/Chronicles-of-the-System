@@ -3,68 +3,69 @@ export const config = {
 };
 
 export default async function handler(req) {
-  const url = new URL(req.url);
-  
-  // Определяем целевой URL: убираем /api/proxy и подставляем хост Google API
-  const targetHost = 'generativelanguage.googleapis.com';
-  const targetPath = url.pathname.replace(/^\/api\/proxy/, '');
-  const targetUrl = new URL(targetPath, `https://${targetHost}`);
-
-  // Копируем параметры запроса (например, ?key=...)
-  url.searchParams.forEach((value, key) => {
-    targetUrl.searchParams.append(key, value);
-  });
-
-  // Обработка Preflight запросов (CORS OPTIONS)
-  if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': '*', // Разрешаем любые заголовки, которые шлет SDK
-      },
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' }
     });
-  }
-
-  // Подготовка заголовков для пересылки
-  const headers = new Headers();
-  for (const [key, value] of req.headers.entries()) {
-    // Пропускаем системные заголовки, которые могут конфликтовать или указывать на прокси
-    if (!['host', 'connection', 'transfer-encoding', 'content-length', 'content-encoding'].includes(key.toLowerCase())) {
-      headers.set(key, value);
-    }
   }
 
   try {
-    const response = await fetch(targetUrl.toString(), {
-      method: req.method,
-      headers: headers,
-      body: req.body,
-      redirect: 'follow', // Следуем за редиректами если есть
-    });
+    const body = await req.json();
+    const { apiKey, model, contents, config } = body;
 
-    // Подготовка заголовков ответа для клиента
-    const resHeaders = new Headers(response.headers);
-    resHeaders.set('Access-Control-Allow-Origin', '*');
-    
-    // Удаляем заголовки сжатия, чтобы браузер не пытался разжать то, что уже могло быть обработано
-    resHeaders.delete('content-encoding');
-    resHeaders.delete('content-length');
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: 'API Key is required' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
 
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: resHeaders,
-    });
-  } catch (error) {
-    console.error('Proxy Error:', error);
-    return new Response(JSON.stringify({ error: 'Proxy Request Failed', details: error.message }), {
-      status: 500,
-      headers: { 
+    // Prepare contents for REST API
+    // Google REST API expects: contents: [{ parts: [{ text: "..." }] }]
+    // If we receive a simple string, we wrap it.
+    let apiContents = contents;
+    if (typeof contents === 'string') {
+      apiContents = [{ parts: [{ text: contents }] }];
+    } else if (typeof contents === 'object' && !Array.isArray(contents) && contents.parts) {
+      apiContents = [contents];
+    }
+
+    // Construct the payload
+    const payload = {
+      contents: apiContents,
+      generationConfig: config || {}
+    };
+
+    // Call Google API directly from the server (Edge)
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const googleResponse = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
       },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await googleResponse.json();
+
+    if (!googleResponse.ok) {
+      return new Response(JSON.stringify(data), { 
+        status: googleResponse.status,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    return new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: 'Internal Proxy Error', details: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
     });
   }
 }

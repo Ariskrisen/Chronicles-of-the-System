@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Send, Power, Eye, BookOpen } from 'lucide-react';
+import { Send, Power, Eye, BookOpen, Feather } from 'lucide-react';
 
 interface InputAreaProps {
   onSend: (text: string) => void;
@@ -41,15 +41,15 @@ export const InputArea: React.FC<InputAreaProps> = ({
 
   if (isDead) {
     return (
-      <div className="border-t border-red-900/30 bg-red-950/10 p-6 backdrop-blur-sm">
+      <div className="border-t border-red-900/30 bg-red-950/20 p-6 backdrop-blur-sm">
         <div className="max-w-2xl mx-auto text-center space-y-4">
-          <p className="text-red-500 font-mono tracking-widest text-sm animate-pulse">СВЯЗЬ С НОСИТЕЛЕМ ПОТЕРЯНА</p>
+          <p className="text-red-500 font-title tracking-widest text-lg drop-shadow-md">НИТЬ СУДЬБЫ ОБОРВАНА</p>
           <button
             onClick={onRestart}
-            className="group relative inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-mono font-bold text-red-100 transition-all duration-300 bg-red-900/40 border border-red-700 hover:bg-red-800/50 hover:border-red-500 hover:shadow-[0_0_20px_rgba(220,38,38,0.4)]"
+            className="group relative inline-flex items-center justify-center gap-2 px-8 py-3 text-sm font-serif font-bold text-red-100 transition-all duration-300 bg-red-900/40 border border-red-800 hover:bg-red-800/60 hover:border-red-500"
           >
             <Power size={18} />
-            <span>ПОИСК НОВОГО НОСИТЕЛЯ</span>
+            <span>НАЙТИ НОВУЮ ЖЕРТВУ</span>
           </button>
         </div>
       </div>
@@ -57,29 +57,29 @@ export const InputArea: React.FC<InputAreaProps> = ({
   }
 
   return (
-    <div className="border-t border-zinc-800 bg-zinc-900/90 p-4 backdrop-blur-sm shadow-[0_-5px_20px_rgba(0,0,0,0.5)] z-20">
+    <div className="border-t border-[#44403c] bg-[#1c1917] p-4 shadow-[0_-5px_30px_rgba(0,0,0,0.7)] z-20">
       
       {/* Energy Bar */}
-      <div className="max-w-4xl mx-auto mb-3 flex items-center gap-3">
-        <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider min-w-[60px]">Энергия</div>
-        <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+      <div className="max-w-4xl mx-auto mb-4 flex items-center gap-3">
+        <div className="text-[10px] font-serif text-[#78716c] uppercase tracking-wider min-w-[60px]">Влияние</div>
+        <div className="flex-1 h-2 bg-[#0c0a09] border border-[#292524] p-[1px]">
           <div 
-            className={`h-full transition-all duration-500 ${systemEnergy < MESSAGE_COST ? 'bg-red-500 animate-pulse' : 'bg-indigo-500'}`} 
+            className={`h-full transition-all duration-700 ${systemEnergy < MESSAGE_COST ? 'bg-red-900' : 'bg-[#bfa15f]'}`} 
             style={{ width: `${systemEnergy}%` }}
           />
         </div>
-        <div className={`text-xs font-mono w-8 text-right ${systemEnergy < MESSAGE_COST ? 'text-red-500' : 'text-indigo-400'}`}>
-          {systemEnergy}%
+        <div className={`text-xs font-mono w-8 text-right ${systemEnergy < MESSAGE_COST ? 'text-red-500' : 'text-[#bfa15f]'}`}>
+          {systemEnergy}
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto flex gap-3">
+      <div className="max-w-4xl mx-auto flex gap-2 md:gap-4">
         {/* Library Button */}
         <button
           onClick={onOpenLibrary}
           disabled={disabled}
-          title="Архив Знаний"
-          className="bg-zinc-800 text-zinc-400 px-3 md:px-4 py-3 border border-zinc-700 hover:bg-zinc-700 hover:text-amber-200 disabled:opacity-50 transition-colors"
+          title="Архив"
+          className="bg-[#292524] text-[#a8a29e] px-3 md:px-4 py-3 border border-[#44403c] hover:bg-[#44403c] hover:text-[#d6cbb8] hover:border-[#bfa15f] disabled:opacity-50 transition-all"
         >
           <BookOpen size={20} />
         </button>
@@ -88,33 +88,35 @@ export const InputArea: React.FC<InputAreaProps> = ({
         <button
           onClick={handleNextTurnClick}
           disabled={disabled}
-          title="Наблюдать (+Энергия)"
-          className="bg-zinc-800 text-emerald-500/80 px-4 py-3 border border-zinc-700 hover:bg-zinc-700 hover:text-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 relative overflow-hidden group"
+          title="Наблюдать"
+          className="bg-[#292524] text-[#bfa15f] px-4 py-3 border border-[#44403c] hover:bg-[#0c0a09] hover:border-[#bfa15f] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 group"
         >
-          <div className="absolute inset-0 bg-emerald-500/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
           <Eye size={20} />
-          <span className="hidden md:inline text-xs font-mono font-bold">+15%</span>
+          <span className="hidden md:inline text-xs font-serif font-bold">+15 Сил</span>
         </button>
 
         {/* Text Input */}
-        <form onSubmit={handleSubmit} className="flex-1 flex gap-2 relative">
+        <form onSubmit={handleSubmit} className="flex-1 flex gap-0 relative shadow-inner">
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[#57534e]">
+            <Feather size={14} />
+          </div>
           <input
             type="text"
             value={text}
             onChange={(e) => setText(e.target.value)}
             disabled={disabled || !canSendMessage}
-            placeholder={canSendMessage ? "Отправить ментальный приказ (-35%)..." : "Недостаточно энергии для связи..."}
-            className={`w-full bg-black/40 text-indigo-100 border rounded-none px-4 py-3 font-mono text-sm focus:outline-none focus:ring-1 placeholder-zinc-600 disabled:opacity-50 transition-all
+            placeholder={canSendMessage ? "Начертать волю..." : "Недостаточно влияния..."}
+            className={`w-full bg-[#0c0a09] text-[#e7e5e4] border-y border-l px-10 py-3 font-serif text-lg focus:outline-none placeholder-[#44403c] disabled:opacity-50 transition-all
               ${canSendMessage 
-                ? 'border-zinc-700 focus:border-indigo-500 focus:ring-indigo-900/50' 
-                : 'border-red-900/30 text-red-900 placeholder-red-900/50 cursor-not-allowed'}`}
+                ? 'border-[#44403c] focus:border-[#bfa15f]' 
+                : 'border-red-900/30 text-red-900 cursor-not-allowed'}`}
           />
           <button
             type="submit"
             disabled={disabled || !text.trim() || !canSendMessage}
             className={`px-6 py-2 border transition-colors ${canSendMessage 
-              ? 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700 hover:text-white' 
-              : 'bg-zinc-900 text-zinc-600 border-zinc-800 cursor-not-allowed'}`}
+              ? 'bg-[#292524] text-[#bfa15f] border-[#44403c] hover:bg-[#bfa15f] hover:text-black hover:border-[#bfa15f]' 
+              : 'bg-[#1c1917] text-[#44403c] border-[#292524] cursor-not-allowed'}`}
           >
             <Send size={18} />
           </button>

@@ -5,19 +5,23 @@ export const config = {
 export default async function handler(req) {
   const url = new URL(req.url);
   
-  // Logic: 
-  // 1. Client requests: https://your-app.vercel.app/api/proxy/v1beta/models/...
-  // 2. We strip '/api/proxy' from the start of the pathname
-  // 3. We forward to: https://generativelanguage.googleapis.com/v1beta/models/...
-  
+  // Clean path: remove /api/proxy prefix
   const path = url.pathname.replace(/^\/api\/proxy/, '');
+  // Construct target URL
   const targetUrl = `https://generativelanguage.googleapis.com${path}${url.search}`;
 
   // Prepare headers
   const headers = new Headers();
-  // Pass through critical headers. 
-  // 'x-goog-api-key' might be in header (if SDK put it there) or query param (handled by url.search)
-  const allowedHeaders = ['content-type', 'x-goog-api-client', 'x-goog-api-key', 'accept'];
+  
+  // Explicitly copy ONLY safe headers. 
+  // Browsers send Origin/Referer/Host which can cause Google API to reject the request with 400/403.
+  const allowedHeaders = [
+    'content-type', 
+    'x-goog-api-client', 
+    'x-goog-api-key', 
+    'accept',
+    'user-agent'
+  ];
   
   for (const [key, value] of req.headers.entries()) {
     if (allowedHeaders.includes(key.toLowerCase())) {
@@ -25,12 +29,21 @@ export default async function handler(req) {
     }
   }
 
-  const response = await fetch(targetUrl, {
-    method: req.method,
-    headers: headers,
-    // Only pass body if it's a method that supports it
-    body: (req.method !== 'GET' && req.method !== 'HEAD') ? req.body : undefined,
-  });
+  // Debug (will show in Vercel logs)
+  console.log(`Proxying ${req.method} to: ${targetUrl}`);
 
-  return response;
+  try {
+    const response = await fetch(targetUrl, {
+      method: req.method,
+      headers: headers,
+      body: (req.method !== 'GET' && req.method !== 'HEAD') ? req.body : undefined,
+    });
+
+    return response;
+  } catch (e) {
+    return new Response(JSON.stringify({ error: 'Proxy fetch failed', details: e.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 }

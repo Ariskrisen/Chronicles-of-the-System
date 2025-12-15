@@ -7,20 +7,29 @@ export default async function handler(req) {
   
   // Logic: 
   // 1. Client requests: https://your-app.vercel.app/api/proxy/v1beta/models/...
-  // 2. We strip '/api/proxy'
+  // 2. We strip '/api/proxy' from the start of the pathname
   // 3. We forward to: https://generativelanguage.googleapis.com/v1beta/models/...
   
-  const path = url.pathname.replace('/api/proxy', '');
+  const path = url.pathname.replace(/^\/api\/proxy/, '');
   const targetUrl = `https://generativelanguage.googleapis.com${path}${url.search}`;
+
+  // Prepare headers
+  const headers = new Headers();
+  // Pass through critical headers. 
+  // 'x-goog-api-key' might be in header (if SDK put it there) or query param (handled by url.search)
+  const allowedHeaders = ['content-type', 'x-goog-api-client', 'x-goog-api-key', 'accept'];
+  
+  for (const [key, value] of req.headers.entries()) {
+    if (allowedHeaders.includes(key.toLowerCase())) {
+      headers.set(key, value);
+    }
+  }
 
   const response = await fetch(targetUrl, {
     method: req.method,
-    headers: {
-      'Content-Type': 'application/json',
-      // Forward the API Key header if present (though SDK usually uses query params)
-      ...(req.headers.get('x-goog-api-key') && { 'x-goog-api-key': req.headers.get('x-goog-api-key') })
-    },
-    body: req.body,
+    headers: headers,
+    // Only pass body if it's a method that supports it
+    body: (req.method !== 'GET' && req.method !== 'HEAD') ? req.body : undefined,
   });
 
   return response;

@@ -6,12 +6,11 @@ const MODEL_NAME = "gemini-2.5-flash";
 // Helper to create instance based on current config
 const createAI = (config: ApiConfig) => {
   if (config.useProxy) {
-    // When proxy mode is enabled, we point the SDK to our local Vercel function path.
-    // The SDK will append /v1beta/models/... to this base.
-    // 'window.location.origin' ensures it works on whatever domain the app is deployed to.
+    // We set the baseUrl to the local proxy endpoint.
+    // The SDK uses this as the root for API calls.
+    // We rely on standard window.location.origin to work both locally and on Vercel.
     return new GoogleGenAI({ 
       apiKey: config.apiKey,
-    }, {
       baseUrl: `${window.location.origin}/api/proxy`
     });
   }
@@ -157,10 +156,7 @@ export const continueStory = async (
     return JSON.parse(text) as AIResponse;
   } catch (error) {
     console.error("Error generating story:", error);
-    return {
-      diaryEntry: "...",
-      isDead: false,
-      statusDescription: "Неизвестно"
-    };
+    // Throwing error allows the UI to catch it
+    throw error;
   }
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ApiConfig } from '../types';
-import { Key, Globe, Play, ShieldAlert } from 'lucide-react';
+import { Key, Globe, Play, ShieldAlert, Server } from 'lucide-react';
 
 interface MainMenuProps {
   onStart: (config: ApiConfig) => void;
@@ -10,16 +10,13 @@ interface MainMenuProps {
 export const MainMenu: React.FC<MainMenuProps> = ({ onStart, savedConfig }) => {
   const [apiKey, setApiKey] = useState('');
   const [useProxy, setUseProxy] = useState(false);
-  const [baseUrl, setBaseUrl] = useState('https://generativelanguage.googleapis.com');
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (savedConfig) {
       setApiKey(savedConfig.apiKey);
       setUseProxy(savedConfig.useProxy);
-      if (savedConfig.baseUrl) setBaseUrl(savedConfig.baseUrl);
     } else if (process.env.API_KEY) {
-      // If environment variable is present (e.g. local dev), prefill it
       setApiKey(process.env.API_KEY);
     }
   }, [savedConfig]);
@@ -36,7 +33,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart, savedConfig }) => {
     const config: ApiConfig = {
       apiKey: apiKey.trim(),
       useProxy,
-      baseUrl: useProxy ? baseUrl.trim() : undefined
+      // baseUrl is handled dynamically in the service now
     };
 
     onStart(config);
@@ -80,9 +77,9 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart, savedConfig }) => {
               />
             </div>
 
-            <div className="space-y-2 pt-2">
-              <label className="flex items-center gap-3 cursor-pointer group">
-                <div className={`w-5 h-5 border flex items-center justify-center transition-colors ${useProxy ? 'bg-emerald-900/30 border-emerald-500' : 'bg-black/50 border-zinc-700'}`}>
+            <div className="pt-2">
+              <label className="flex items-start gap-3 cursor-pointer group p-3 border border-zinc-800 rounded bg-black/20 hover:bg-black/40 transition-colors">
+                <div className={`mt-0.5 w-5 h-5 border flex-shrink-0 flex items-center justify-center transition-colors ${useProxy ? 'bg-emerald-900/30 border-emerald-500' : 'bg-black/50 border-zinc-700'}`}>
                   {useProxy && <div className="w-2.5 h-2.5 bg-emerald-500" />}
                 </div>
                 <input 
@@ -91,29 +88,17 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart, savedConfig }) => {
                   checked={useProxy} 
                   onChange={(e) => setUseProxy(e.target.checked)} 
                 />
-                <span className="text-xs font-mono text-zinc-400 group-hover:text-zinc-300 transition-colors">
-                  Использовать Прокси (для доступа из РФ)
-                </span>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-mono font-bold text-zinc-300 group-hover:text-white transition-colors flex items-center gap-2">
+                    <Server size={12} />
+                    Режим Прокси (Vercel)
+                  </span>
+                  <span className="text-[10px] text-zinc-500 leading-tight">
+                    Маршрутизация через сервер Vercel. Включите, если прямой доступ к Google API заблокирован (например, из РФ).
+                  </span>
+                </div>
               </label>
             </div>
-
-            {useProxy && (
-              <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
-                <label className="text-xs font-mono text-zinc-400 uppercase">
-                  Base URL / Proxy Endpoint
-                </label>
-                <input 
-                  type="text" 
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder="https://..."
-                  className="w-full bg-black/50 border border-zinc-700 text-zinc-100 px-4 py-3 font-mono text-sm focus:outline-none focus:border-emerald-500/50"
-                />
-                <p className="text-[10px] text-zinc-600 font-mono">
-                  Укажите адрес совместимого Gemini прокси. 
-                </p>
-              </div>
-            )}
           </div>
 
           {error && (

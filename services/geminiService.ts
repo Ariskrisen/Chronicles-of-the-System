@@ -5,19 +5,14 @@ const MODEL_NAME = "gemini-2.5-flash";
 
 // Helper to create instance based on current config
 const createAI = (config: ApiConfig) => {
-  const options: any = { apiKey: config.apiKey };
-  
-  // If proxy mode is enabled and a base URL is provided, we attempt to configure it.
-  // Note: Support for baseUrl depends on the specific SDK version capabilities.
-  // We pass it in the client options which is the standard way for many Google SDKs.
-  if (config.useProxy && config.baseUrl) {
-    // This is a workaround pattern. The @google/genai SDK constructor 
-    // accepts { apiKey: ... }, { baseUrl: ... } in some variations or via transport.
-    // We try the common init pattern.
+  if (config.useProxy) {
+    // When proxy mode is enabled, we point the SDK to our local Vercel function path.
+    // The SDK will append /v1beta/models/... to this base.
+    // 'window.location.origin' ensures it works on whatever domain the app is deployed to.
     return new GoogleGenAI({ 
       apiKey: config.apiKey,
     }, {
-      baseUrl: config.baseUrl
+      baseUrl: `${window.location.origin}/api/proxy`
     });
   }
   

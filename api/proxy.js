@@ -1,71 +1,65 @@
-export const config = {
-  runtime: 'edge',
-};
+import { GoogleGenAI } from "@google/genai";
 
-export default async function handler(req) {
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' }
-    });
+/**
+ * Server-side proxy handler (Node serverless).
+ * - Do NOT set runtime: 'edge' for this file (remove export const config if present).
+ * - In production prefer setting GENAI_API_KEY in environment variables.
+ *
+ * Expects POST JSON:
+ * {
+ *   apiKey?: string,         // optional if GENAI_API_KEY env is set
+ *   model?: string,          // optional, defaults to gemini-2.5-flash
+ *   contents: string | any[],// required
+ *   config?: object,         // optional SDK config (temperature, responseMimeType, responseSchema, ...)
+ *   schema?: any             // optional shorthand for responseSchema
+ * }
+ */
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
   }
 
   try {
-    const body = await req.json();
-    const { apiKey, model, contents, config } = body;
+    const body = await (async () => {
+      try {
+        return await req.json();
+      } catch {
+        return {};
+      }
+    })();
+
+    const { apiKey: clientKey, model, contents, config: clientConfig, schema } = body || {};
+
+    if (!contents) {
+      return res.status(400).json({ error: "Missing 'contents' in request body" });
+    }
+
+    const serverKey = process.env.GENAI_API_KEY;
+    const apiKey = serverKey || (clientKey ? String(clientKey) : undefined);
 
     if (!apiKey) {
-      return new Response(JSON.stringify({ error: 'API Key is required' }), { 
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      return res.status(400).json({ error: "API key required: set GENAI_API_KEY on server or include apiKey in request body" });
     }
 
-    // Prepare contents for REST API
-    // Google REST API expects: contents: [{ parts: [{ text: "..." }] }]
-    // If we receive a simple string, we wrap it.
-    let apiContents = contents;
-    if (typeof contents === 'string') {
-      apiContents = [{ parts: [{ text: contents }] }];
-    } else if (typeof contents === 'object' && !Array.isArray(contents) && contents.parts) {
-      apiContents = [contents];
-    }
+    const ai = new GoogleGenAI({ apiKey });
 
-    // Construct the payload
-    const payload = {
-      contents: apiContents,
-      generationConfig: config || {}
+    // Build SDK config merging provided config and schema (if exists)
+    const sdkConfig = {
+      ...(clientConfig || {}),
+      responseSchema: clientConfig?.responseSchema || schema || clientConfig?.responseSchema,
     };
 
-    // Call Google API directly from the server (Edge)
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-    const googleResponse = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
+    const response = await ai.models.generateContent({
+      model: model || "gemini-2.5-flash",
+      contents,
+      config: sdkConfig,
     });
 
-    const data = await googleResponse.json();
-
-    if (!googleResponse.ok) {
-      return new Response(JSON.stringify(data), { 
-        status: googleResponse.status,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-  } catch (error) {
-    return new Response(JSON.stringify({ error: 'Internal Proxy Error', details: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    // Return a minimal normalized result to the client (text). Keep this stable for client parsing.
+    return res.status(200).json({ text: response?.text ?? null });
+  } catch (err) {
+    console.error("Gemini Proxy Error:", err);
+    return res.status(500).json({ error: err?.message || "Internal Server Error" });
   }
 }

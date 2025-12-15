@@ -4,99 +4,116 @@ import { HeroProfile, AIResponse, Message, Sender, ApiConfig } from "../types";
 const MODEL_NAME = "gemini-2.5-flash";
 
 /**
- * Internal helper to handle generation via SDK or Proxy.
+ * Call the server-side proxy endpoint which in turn calls the @google/genai SDK on the server.
+ * The server will prefer GENAI_API_KEY env var if set; client apiKey is optional (dev).
  */
-const generateContent = async (
-  apiConfig: ApiConfig,
-  model: string,
-  prompt: string,
-  genConfig: any
-): Promise<string> => {
-  if (apiConfig.useProxy) {
-    // GC-Hunter style: Call our own API endpoint with parameters
-    const response = await fetch('/api/proxy', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        apiKey: apiConfig.apiKey,
-        model: model,
-        contents: prompt,
-        config: genConfig
-      }),
-    });
+async function callProxyGenerateContent(config: ApiConfig, options: { model: string; contents: string | any[]; config?: any; schema?: any; }) {
+  const payload: any = {
+    model: options.model,
+    contents: options.contents,
+    config: options.config || {},
+    schema: options.schema || undefined,
+  };
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error?.message || errorData.details || 'Proxy Request Failed');
-    }
+  // Include client apiKey only for dev/test if needed. Server will prefer env key when present.
+  if (config.apiKey) payload.apiKey = config.apiKey;
 
-    const data = await response.json();
-    // Parse REST API response structure
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error("No text in proxy response");
-    return text;
-  } else {
-    // Standard SDK usage
-    const ai = new GoogleGenAI({ apiKey: apiConfig.apiKey });
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: prompt,
-      config: genConfig,
-    });
-    return response.text || "";
+  const resp = await fetch("/api/proxy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`Proxy error ${resp.status}: ${errText}`);
   }
+
+  const data = await resp.json();
+  return { text: data.text || null };
+}
+
+// Helper to create SDK instance when NOT using proxy (direct/browser mode)
+const createAI = (config: ApiConfig) => {
+  if (config.useProxy) return null;
+  return new GoogleGenAI({ apiKey: config.apiKey });
 };
 
 /**
  * Generates a random hero profile + starting location description.
  */
 export const generateHero = async (config: ApiConfig): Promise<HeroProfile> => {
-  const prompt = `
-    Сгенерируй профиль человека (героя), который попал (исекай) в мрачный, опасный, реалистичный средневековый дарк-фэнтези мир.
-    
-    Также выбери "theme" (биом/локацию).
-    Варианты theme: 'dungeon' (темница, древние руины), 'forest' (проклятый лес), 'desert' (пепельная пустошь), 'winter' (ледяные пики), 'swamp' (ядовитые болота), 'city' (трущобы темного города).
-    
-    Придумай "locationDescription": Описание места, где очнулся герой. Это должно быть атмосферное описание окружения (запахи, звуки, вид), которое мы покажем игроку перед началом игры. Объем: 2-3 предложения.
+  const ai = createAI(config);
 
+  const prompt = `
+    Сгенерируй профиль человека (героя), который попал в мрачный, опасный, реалистичный средневековый мир.
     Верни JSON:
     - name: Имя
     - archetype: Профессия/Роль в прошлом мире
-    - personality: Характер (влияет на действия)
+    - personality: Характер
     - origin: Как попал сюда
-    - theme: Строка из списка выше
-    - locationDescription: Текст описания локации
+    - theme: 'dungeon' | 'forest' | 'desert' | 'winter' | 'swamp' | 'city'
+    - locationDescription: Описание места, где очнулся герой
   `;
 
   try {
-    const text = await generateContent(
-      config,
-      MODEL_NAME,
-      prompt,
-      {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            name: { type: Type.STRING },
-            archetype: { type: Type.STRING },
-            personality: { type: Type.STRING },
-            origin: { type: Type.STRING },
-            theme: { type: Type.STRING, enum: ['dungeon', 'forest', 'desert', 'winter', 'swamp', 'city'] },
-            locationDescription: { type: Type.STRING },
+    if (config.useProxy) {
+      const response = await callProxyGenerateContent(config, {
+        model: MODEL_NAME,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              archetype: { type: Type.STRING },
+              personality: { type: Type.STRING },
+              origin: { type: Type.STRING },
+              theme: { type: Type.STRING, enum: ['dungeon', 'forest', 'desert', 'winter', 'swamp', 'city'] },
+              locationDescription: { type: Type.STRING },
+            },
+            required: ["name", "archetype", "personality", "origin", "theme", "locationDescription"],
           },
-          required: ["name", "archetype", "personality", "origin", "theme", "locationDescription"],
         },
-      }
-    );
+      });
 
-    const data = JSON.parse(text);
-    return {
-      ...data,
-      startCoordinates: `${Math.floor(Math.random() * 99)}°${Math.floor(Math.random() * 60)}'N, ${Math.floor(Math.random() * 99)}°${Math.floor(Math.random() * 60)}'E` // Fluff
-    } as HeroProfile;
+      const text = response.text;
+      if (!text) throw new Error("No response from AI (proxy)");
+      const data = JSON.parse(text);
+      return {
+        ...data,
+        startCoordinates: `${Math.floor(Math.random() * 99)}°${Math.floor(Math.random() * 60)}'N, ${Math.floor(Math.random() * 99)}°${Math.floor(Math.random() * 60)}'E`,
+      } as HeroProfile;
+    } else {
+      const response = await ai.models.generateContent({
+        model: MODEL_NAME,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              archetype: { type: Type.STRING },
+              personality: { type: Type.STRING },
+              origin: { type: Type.STRING },
+              theme: { type: Type.STRING, enum: ['dungeon', 'forest', 'desert', 'winter', 'swamp', 'city'] },
+              locationDescription: { type: Type.STRING },
+            },
+            required: ["name", "archetype", "personality", "origin", "theme", "locationDescription"],
+          },
+        },
+      });
+
+      const text = response.text;
+      if (!text) throw new Error("No response from AI (direct)");
+      const data = JSON.parse(text);
+      return {
+        ...data,
+        startCoordinates: `${Math.floor(Math.random() * 99)}°${Math.floor(Math.random() * 60)}'N, ${Math.floor(Math.random() * 99)}°${Math.floor(Math.random() * 60)}'E`,
+      } as HeroProfile;
+    }
   } catch (error) {
     console.error("Error generating hero:", error);
     throw error;
@@ -104,7 +121,7 @@ export const generateHero = async (config: ApiConfig): Promise<HeroProfile> => {
 };
 
 /**
- * Generates the hero's response.
+ * Generates the hero's response based on history and system input.
  */
 export const continueStory = async (
   hero: HeroProfile,
@@ -112,70 +129,77 @@ export const continueStory = async (
   systemInput: string | null,
   config: ApiConfig
 ): Promise<AIResponse> => {
-  // Create a condensed context log. 
-  const lastMessages = history.slice(-10); // Look at last 10 messages context
-  
-  const conversationLog = lastMessages.map(msg => 
-    `${msg.sender === Sender.SYSTEM ? 'ГОЛОС' : 'ГЕРОЙ'}: ${msg.content}`
-  ).join('\n');
+  const ai = createAI(config);
+
+  const lastMessages = history.slice(-10);
+  const conversationLog = lastMessages.map(msg => `${msg.sender === Sender.SYSTEM ? 'ГОЛОС' : 'ГЕРОЙ'}: ${msg.content}`).join("\n");
 
   const isSilent = systemInput === null;
-
   const systemAction = isSilent
-    ? "ГОЛОС МОЛЧИТ. Герой предоставлен сам себе. Проходит ВРЕМЯ (от 10 минут до часа). Герой должен совершить СЕРИЮ действий."
-    : `ГОЛОС В ГОЛОВЕ прозвучал/появился текст: "${systemInput}". Герой реагирует на это немедленно.`;
+    ? "ГОЛОС МОЛЧИТ. Герой предоставлен сам себе."
+    : `ГОЛОС: "${systemInput}"`;
 
   const prompt = `
     Ты играешь роль: ${hero.name}. Архетип: ${hero.archetype}. Характер: ${hero.personality}.
-    
-    МИР: Дарк фэнтези. Реалистичный, жестокий.
-    ТВОЕ СОСТОЯНИЕ: Ты не знаешь, что такое "Система". Голос в голове для тебя — это мистика/шизофрения/божество.
-    
     КОНТЕКСТ ДИАЛОГА:
     ${conversationLog}
-
     ТЕКУЩАЯ ИНСТРУКЦИЯ:
     ${systemAction}
 
-    ЗАДАЧА:
-    Напиши запись в ментальный дневник (от 1-го лица).
-    
-    ВАЖНЕЙШИЕ ПРАВИЛА (ЧТОБЫ ИЗБЕЖАТЬ ЦИКЛОВ):
-    1. Ели ГОЛОС МОЛЧИТ: Не описывай одно и то же. Сделай шаг вперед по сюжету. Опиши, как герой идет дальше, исследует, находит что-то, ест, спит или сражается. Промотай время вперед.
-    2. Описывай МНОГО действий, если голос молчит. Не стой на месте.
-    3. МИР ЖИВОЙ: Встречай странных существ (монстров) или следы людей. Людей встречай редко (только в деревнях/городах), монстров чаще.
-    4. Если игрок использует РУНЫ (рисует знаки), они работают, но описывай это как магию, которая отнимает силы или пугает.
-    5. Не повторяй текст из предыдущих сообщений.
-
     Верни ответ строго в JSON:
     {
-      "diaryEntry": "Текст (1-3 абзаца, насыщенных событиями)",
+      "diaryEntry": "Текст (1-3 абзаца)",
       "isDead": true/false,
-      "statusDescription": "Статус (например: 'Идет через лес', 'Прячется', 'Сражается')"
+      "statusDescription": "Статус"
     }
   `;
 
   try {
-    const text = await generateContent(
-      config,
-      MODEL_NAME,
-      prompt,
-      {
-        temperature: 1.1,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            diaryEntry: { type: Type.STRING },
-            isDead: { type: Type.BOOLEAN },
-            statusDescription: { type: Type.STRING },
+    if (config.useProxy) {
+      const response = await callProxyGenerateContent(config, {
+        model: MODEL_NAME,
+        contents: prompt,
+        config: {
+          temperature: 1.1,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              diaryEntry: { type: Type.STRING },
+              isDead: { type: Type.BOOLEAN },
+              statusDescription: { type: Type.STRING },
+            },
+            required: ["diaryEntry", "isDead", "statusDescription"],
           },
-          required: ["diaryEntry", "isDead", "statusDescription"],
         },
-      }
-    );
+      });
 
-    return JSON.parse(text) as AIResponse;
+      const text = response.text;
+      if (!text) throw new Error("No response from AI (proxy)");
+      return JSON.parse(text) as AIResponse;
+    } else {
+      const response = await ai.models.generateContent({
+        model: MODEL_NAME,
+        contents: prompt,
+        config: {
+          temperature: 1.1,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              diaryEntry: { type: Type.STRING },
+              isDead: { type: Type.BOOLEAN },
+              statusDescription: { type: Type.STRING },
+            },
+            required: ["diaryEntry", "isDead", "statusDescription"],
+          },
+        },
+      });
+
+      const text = response.text;
+      if (!text) throw new Error("No response from AI (direct)");
+      return JSON.parse(text) as AIResponse;
+    }
   } catch (error) {
     console.error("Error generating story:", error);
     throw error;
